@@ -469,3 +469,7 @@ This would also need definition of a status for updated to the constants: ``UPDA
 You signal that there is still work to do via the ``update()`` function (dual return value including initial state and updated state) and use ``handle_error_response()`` to signal that an error happened
 via exception.  If an execution fails with error due to external factors like network issues etc., then you can extend the functionality of ``execute()`` to define the behavior to ``rerun`` from the last checkpoint.
 
+The state machine transitions with ``update`` (or ``waiting_on_input`` state) would look like this:
+
+.. image:: docs/images/turtle-shell-state-machine-with-update.png
+   :alt: State transitions with update
