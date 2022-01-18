@@ -216,25 +216,29 @@ The default state transitions in the django turtle-shell:
 Define a manager ``ExecutionResultManager`` for managing the internal state and transitions of the execution objects with state machine defined above.
 This should be able to poll for any state changes to execution instances and do the required to return current state and status for each object when called from ``get_current_state``.
 
-Define tasks to pick up pending operations and move them to the next state.
-The ``start()`` task would ideally start new executions created (objects with ``state="CREATED``). This would take care of validating inputs for these newly created executions, which can then be marked as pending to be picked up.
-``advance()`` for each object would ideally take the current state, next possible state, current status and call on the next state to update the state and status.
+Define tasks to pick up pending operations and move them to the next state. The newly executions created (objects with ``state="CREATED``) on ``create()`` would handle validating inputs, which can then be marked as pending to be picked up.
+``advance()`` for each object would ideally take the current state, possible next state, current status and call on the next state to update the state and status.
 
 .. code-block::
 
     @shared_task()
     def advance_executions():
-    pending_executions = ExecutionResult.objects.pending()
+    pending_executions = ExecutionResultManager.pending()
     for pending_exc in pending_executions:
         pending_exc.advance()
     return
 
-    @shared_task()
-    def start_executions():
-    created_executions = ExecutionResult.object.filter(status="CREATED")
-    for created_exc in created_executions:
-        created_exc.start()
-    return
+The custom state machine must implement two functions:
+
+.. code-block::
+
+def advance()-> bool:
+    # Logic to get current
+
+def is_complete() -> bool:
+    # Logic to define when the execution is complete in that state
+
+And the task will continue running until ``is_complete()`` returns True (will be marked as DONE) or ``advance()`` returns False (will be marked as ERRORED)
 
 
 The ``ExecutionResultManager`` can be extended to define handling state transitions and polling methods for different functions.
@@ -248,8 +252,9 @@ The ``ExecutionResultManager`` can be extended to define handling state transiti
         inputs = {}
 
         def pending(self):
-            return Execution.objects.exclude(
+            return Execution.objects.filter(
                 status__in=XYZ # Define list of statuses that could be defined as pending
+                # For example ExecutionResult.object.filter(status="CREATED")
             )
 
         def get_current_state(inputs):
@@ -296,6 +301,13 @@ The ``ExecutionResultManager`` can be extended to define handling state transiti
                 # Here the execution instance is created, so the
                 cur_inp = get_current_state(self.inputs, self.status)
                 self.status = cur_inp['status'] # will be self.ExecutionStatus.CREATED
+
+                val_inp = self._validate_inputs(cur_inp, self.func, cur_status)
+                self.status = val_inp['status']
+                self.input_json = val_inp['input_json']
+                self.output_json = val_inp['output_json']
+                self.current_state = val_inp['current_state']
+
                 with transaction.atomic():
                     self.save()
                  ...
@@ -305,33 +317,10 @@ The ``ExecutionResultManager`` can be extended to define handling state transiti
                 return self.handle_error_response(error_details)
             return cur_inp
 
+An execution is created with ``create()`` and can be picked up by the tasks as ``pending`` and move to the next states as defined by the state transitions.
+At this stage, the instance would have cleaned inputs from the form defined in ``input_json``. Once the inputs are validated with function-specific validations, the ``func`` instance can be advanced to execution.
 
-An execution is created with ``create()`` and can be picked up by the tasks as ``pending``.
-It can advance to ``start`` and move to the next states as defined by the state transitions. At this stage, the instance would have cleaned inputs from the form defined in ``input_json`` that would be pending function-specific validations.
-
-.. code-block::
-
-        def start(**kwargs):
-            ...
-            self.inputs = _get_inputs(self.uuid, input_json, self.status, current_state, next_state, None)
-            # Generic behavior for starting functions
-            cur_inp = get_current_state(self.inputs, self.status)
-            self.status = cur_status # will be ExecutionStatus.STARTED
-            try:
-                val_inp = self._validate_inputs(cur_inp, self.func, cur_status)
-                self.status = val_inp['status'] # will be ExecutionStatus.VALIDATED
-                self.input_json = val_inp['input_json']
-                self.output_json = val_inp['output_json']
-                self.current_state = val_inp['current_state']
-                self.save()
-            except ValidationError as ve:
-                error_details = {'error_type': ve.error_type,
-                                 'error_traceback': traceback,}
-                return self.handle_error_response(ve)
-            return val_inp
-
-
-Once the inputs are validated in this stage, the ``func`` instance can be advanced to execution. Other possible state transitions could be: ``handle error response`` if the validation fails or ``cancel`` if the user cancels the execution before it advances to a running state.
+Another possible state transition from here ``handle error response`` if the validation fails.
 
 .. code-block::
 
@@ -356,6 +345,14 @@ Once the inputs are validated in this stage, the ``func`` instance can be advanc
             ...
             return result_out
 
+The ``cancel`` state can be used if the user cancels the execution before it advances to a running state.
+By default, any execution will be canceled, which just means that it won't advance to the next
+state but just be marked as cancelled. However, it won't cancel long-running background tasks.
+
+If you want to customize cancellation behavior (e.g., cancelling a DNAnexus remote task), you can optionally override a ``cancel`` method with implemntation .
+
+.. code-block::
+
         def cancel():
             ...
             self.inputs = _get_inputs(self.uuid, input_json, self.status, current_state, CANCEL, self.output_json)
@@ -368,19 +365,6 @@ Once the inputs are validated in this stage, the ``func`` instance can be advanc
                 self.save()
             ...
             return cancel_out
-
-        def update():
-            ...
-            self.inputs = _get_inputs(self.uuid, input_json, self.status, current_state, UPDATE, self.output_json)
-            update_out = get_current_state(self.inputs)
-            self.status = update_out['status'] # will be self.ExecutionStatus.UPDATED
-            self.input_json = val_inp['input_json']
-            self.output_json = val_inp['output_json']
-            self.current_state = val_inp['current_state']
-            with transaction.atomic():
-                self.save()
-            ...
-            return update_out
 
 
 Define ``ExecutionValidator`` that can be extended for defining function-specific validations.
@@ -399,33 +383,28 @@ Define ``ExecutionValidator`` that can be extended for defining function-specifi
     class ExecutionStatus:
         # Define the statuses as constants
         CREATED = "created"
-        STARTED = "started"
-        VALIDATED = "validated"
         RUNNING = "running"
-        UPDATED = "updated"
         ERRORED = "cancelled"
         CANCELLED = "cancelled"
         DONE = "done"
 
         STATUS_CHOICES = (
-        (CREATED, "Created"),
-        (STARTED, "Started execution"),
-        (VALIDATED, "Validated input"),
+        (CREATED, "Created execution"),
         (RUNNING, "Running"),
         (CANCELLED, "Cancelled"),
         (ERRORED, "Errored"),
-        (UPDATED, "Updated"),
         (DONE, "Completed"))
 
         # Define the transitions as constants
         CREATE = "create"
-        START = "start"
         ADVANCE = "advance"
 
         # The states of the machine
         SM_STATES = [
-            dict(name=CREATED, on_enter=[START]),
-            dict(name=STARTED, on_enter=[ADVANCE]),
+            dict(name=CREATED, on_enter=[ADVANCE]),
+            # Can define more states for the machine like update
+            # by overloading ADVANCE to move to next state each time
+            dict(name=RUNNING, on_exit=[MARK_COMPLETE]),
             ...
         ]
 
@@ -436,13 +415,57 @@ Define ``ExecutionValidator`` that can be extended for defining function-specifi
         SM_FINAL_STATES = [DONE, CANCELLED, ERRORED]
 
         # The transititions as a list of dictionaries
-        # This could be defined by classes that extend this functionality based on app-specifi functionality
+        # This could be defined by classes that extend this functionality based on app-specific functionality
         SM_TRANSITIONS = [
             # reflexive transition to start state machine
-            dict(trigger=START, source=CREATED, dest=STARTED),
+            dict(trigger=CREATE, source='', dest=CREATED),
             # define how to advance from created to next states
-            dict(trigger=ADVANCE, source=CREATED, dest=...),
+            dict(trigger=ADVANCE, source=CREATED, dest=RUNNING),
+            dict(trigger=ADVANCE, source=RUNNING, dest=DONE),
+            # define how to move to cancelled state
+            dict(trigger=CANCEL, source=CREATED, dest=CANCELLED),
+            dict(trigger=CANCEL, source=RUNNING, dest=CANCELLED),
+            # define how to move to errored state
+            dict(trigger=ERROR, source=CREATED, dest=ERRORED),
+            dict(trigger=ERROR, source=RUNNING, dest=ERRORED),
+            ...
         ]
 
         # Define any other transition filters
         ...
+
+# Ideally, the simplest state machine would be convenient to call this, cancel just stops it, can define max time limit on execution etc.
+# QUESTION: How do you know whether we're done? Maybe, mark is_complete=True
+
+StandardAsyncMachine(
+    start_func=...,
+    update_func=...,
+    is_complete_func=...) =>calls update_func until is_complete_func is True
+    (each time update_func takes in the previous output)
+
+
+Future functionality
+====================
+
+In the future, we may want to allow users to update the inputs to a particular execution. Then, an optional ``update`` method can be defined like this:
+
+.. code-block::
+
+        def update():
+            ...
+            self.inputs = _get_inputs(self.uuid, input_json, self.status, current_state, UPDATE, self.output_json)
+            update_out = get_current_state(self.inputs)
+            self.status = update_out['status'] # will be self.ExecutionStatus.UPDATED
+            self.input_json = val_inp['input_json']
+            self.output_json = val_inp['output_json']
+            self.current_state = val_inp['current_state']
+            with transaction.atomic():
+                self.save()
+            ...
+            return update_out
+
+This would also need definition of a status for updated to the constants: ``UPDATED="updated"`` and ``(UPDATED,"Updated")``.
+
+You signal that there is still work to do via the ``update()`` function (dual return value including initial state and updated state) and use ``handle_error_response()`` to signal that an error happened
+via exception.  If an execution fails with error due to external factors like network issues etc., then you can extend the functionality of ``execute()`` to define the behavior to ``rerun`` from the last checkpoint.
+
