@@ -85,16 +85,26 @@ class Execution(models.Manager):
         return error_response
 
     def validate_execution_input(self, uuid, func, input_json):
+        # Override to define app-specific input validation for function
+        # Raise ValidationException
         pass
 
-    def _validate_inputs(self, inputs, func_name):
+    def _validate_inputs(self, input, func_name):
         try:
             self.validate_execution_input(input['uuid'], func_name, input['input_json'])
             # Can be overridden to define app-specific input validation for function executions
         except ValidationException as ve:
-            error_details = {'error_type': ve.error_type,
-                             'error_traceback': traceback,}
-            return self.handle_error_response(error_details)
+            import traceback
+            logger.error(
+                f"Failed to validate inputs for {self.object.func_name} :(: {type(ve).__name__}:{ve}",
+                exc_info=True
+            )
+            # TODO: catch integrity error separately
+            error_details = {'error_type': type(ve).__name__,
+                             'message': str(ve),
+                             'error_traceback': "".join(traceback.format_exc())}
+            error_response = self.handle_error_response(error_details)
+            raise CaughtException(f"Failed on {self.object.func_name}\n Error Response:: {error_response}", ve) from ve
         return self.get_current_state()
 
     def create(self, **kwargs):
@@ -102,7 +112,7 @@ class Execution(models.Manager):
             func = self.object.get_function()
             # Here the execution instance is created, so the
             cur_inp = self.get_current_state()
-            val_inp = self._validate_inputs(cur_inp, func)
+            val_inp = self._validate_inputs(cur_inp, self.object.func_name)
             with transaction.atomic():
                 self.object.save()
         except CreationException as ce:
