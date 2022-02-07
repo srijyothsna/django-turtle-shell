@@ -1,5 +1,5 @@
 import logging
-from timezone import timezone
+from datetime import datetime
 
 from django_transitions.workflow import StateMachineMixinBase
 from django_transitions.workflow import StatusBase
@@ -35,7 +35,7 @@ class FunctionExecutionStateMachineMixin(StateMachineMixinBase):
         logger.debug(
             f"Tracking state changes: {self.id}, adding {self.status} to history, {self.status_history}"
         )
-        self.status_modified_at = timezone.now()
+        self.status_modified_at = datetime.now()
         self.status_history.append(
             (self.status, self.status_modified_at.strftime("%Y-%m-%d %H:%M:%S (%Z)"))
         )
