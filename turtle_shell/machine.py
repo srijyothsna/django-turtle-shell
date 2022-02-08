@@ -1,62 +1,11 @@
-import logging
 from datetime import datetime
+import logging
 
-from django_transitions.workflow import StateMachineMixinBase
 from django_transitions.workflow import StatusBase
-
-from turtle_shell.models import
+from django_transitions.workflow import StateMachineMixinBase
 
 
 logger = logging.getLogger(__name__)
-
-
-class FunctionExecutionStateMachineMixin(StateMachineMixinBase):
-    status_class = None
-
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        assert hasattr(self, "status"), "Subclassers must include a 'status' field."
-        assert hasattr(
-            self, "status_modified_at"
-        ), "Subclassers must include a 'status_modified_at' field."
-        assert hasattr(self, "status_history"), "Subclassers must include a 'status_history' field."
-
-    @property
-    def state(self):
-        """Get the items workflowstate or the initial state if none is set."""
-        return self.status
-
-    @state.setter
-    def state(self, value):
-        """Set the items workflow state."""
-        self.status = value
-        return self.status
-
-    def track_state_changes(self, *args, **kwargs):
-        """Run this on all transitions."""
-        logger.debug(
-            f"Tracking state changes: {self.uuid}, adding {self.status} to history, {self.status_history}"
-        )
-        self.status_modified_at = datetime.now()
-        self.status_history.append(
-            (self.status, self.status_modified_at.strftime("%Y-%m-%d %H:%M:%S (%Z)"))
-        )
-        self.save()
-
-    def advance(self):
-        try:
-            if not self.status == ExecutionStatus.SM_FINAL_STATES:
-                result = self.object.execute()
-        except Exception as exp:
-            import traceback
-            logger.error(
-                f"Failed to execute {self.func_name} :(: {type(exp).__name__}:{exp}", exc_info=True
-            )
-            error_details = {'type': type(exp).__name__,
-                             'message': str(exp),
-                             'traceback': traceback.format_exc(), }
-            return self.handle_error_response(error_details)
-        return result
 
 
 class ExecutionStatus(StatusBase):
@@ -127,3 +76,52 @@ class ExecutionStatus(StatusBase):
                     "cssclass": "default"
                     },
         }
+
+
+class FunctionExecutionStateMachineMixin(StateMachineMixinBase):
+    status_class = None
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        assert hasattr(self, "status"), "Subclassers must include a 'status' field."
+        assert hasattr(
+            self, "status_modified_at"
+        ), "Subclassers must include a 'status_modified_at' field."
+        assert hasattr(self, "status_history"), "Subclassers must include a 'status_history' field."
+
+    @property
+    def state(self):
+        """Get the items workflowstate or the initial state if none is set."""
+        return self.status
+
+    @state.setter
+    def state(self, value):
+        """Set the items workflow state."""
+        self.status = value
+        return self.status
+
+    def track_state_changes(self, *args, **kwargs):
+        """Run this on all transitions."""
+        logger.debug(
+            f"Tracking state changes: {self.uuid}, adding {self.status} to history, {self.status_history}"
+        )
+        self.status_modified_at = datetime.now()
+        self.status_history.append(
+            (self.status, self.status_modified_at.strftime("%Y-%m-%d %H:%M:%S (%Z)"))
+        )
+        self.save()
+
+    def advance(self):
+        try:
+            if not self.status == ExecutionStatus.SM_FINAL_STATES:
+                result = self.object.execute()
+        except Exception as exp:
+            import traceback
+            logger.error(
+                f"Failed to execute {self.func_name} :(: {type(exp).__name__}:{exp}", exc_info=True
+            )
+            error_details = {'type': type(exp).__name__,
+                             'message': str(exp),
+                             'traceback': traceback.format_exc(), }
+            return self.handle_error_response(error_details)
+        return result
