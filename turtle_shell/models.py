@@ -40,7 +40,87 @@ class ExecutionException(CaughtException):
     """Exception for when execution fails"""
 
 
-class Execution(models.Manager):
+class ExecutionResult(FunctionExecutionStateMachineMixin, models.Model):
+    FIELDS_TO_SHOW_IN_LIST = [
+        ("func_name", "Function"),
+        ("created", "Created"),
+        ("user", "User"),
+        ("status", "Status"),
+        ("modified", "Modified")
+    ]
+    uuid = models.UUIDField(primary_key=True, unique=True, editable=False, default=uuid.uuid4)
+    func_name = models.CharField(max_length=512, editable=False)
+    input_json = models.JSONField(encoder=utils.EnumAwareEncoder, decoder=utils.EnumAwareDecoder)
+    output_json = models.JSONField(
+        default=dict, null=True, encoder=utils.EnumAwareEncoder, decoder=utils.EnumAwareDecoder
+    )
+    error_json = models.JSONField(
+        default=dict, null=True, encoder=utils.EnumAwareEncoder, decoder=utils.EnumAwareDecoder
+    )
+    traceback = models.TextField(default="")
+    created = models.DateTimeField(auto_now_add=True)
+    modified = models.DateTimeField(auto_now=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True)
+
+    status = models.CharField(
+        max_length=50,
+        choices=ExecutionStatus.STATE_CHOICES,
+        default=ExecutionStatus.SM_INITIAL_STATE,
+    )
+    status_modified_at = models.DateTimeField(auto_now_add=True)
+    status_history = models.JSONField(default=list)
+    # state machine setup
+    status_class = ExecutionStatus
+    machine = Machine(
+        model=None,
+        auto_transitions=False,
+        queued=True,
+        after_state_change="track_state_changes",
+        **status_class.get_kwargs(),  # noqa: C815
+    )
+
+    def get_function(self):
+        # TODO: figure this out
+        from . import get_registry
+
+        func_obj = get_registry().get(self.func_name)
+        if not func_obj:
+            raise ValueError(f"No registered function defined for {self.func_name}")
+        return func_obj.func
+
+    @property
+    def is_complete(self):
+        # The execution result is saved to output_json only upon execution completion
+        if self.output_json:
+            return True
+        return False
+
+    @property
+    def has_errored(self):
+        if self.error_json:
+            return True
+        return False
+
+    #TO-DO: Define is_cancelled and logic for tracking cancellations
+
+    def get_absolute_url(self):
+        # TODO: prob better way to do this so that it all redirects right :(
+        return reverse(f"turtle_shell:detail-{self.func_name}", kwargs={"pk": self.pk})
+
+    def __repr__(self):
+        return f"<{type(self).__name__}({self})"
+
+    @property
+    def pydantic_object(self):
+        from turtle_shell import pydantic_adapter
+
+        return pydantic_adapter.get_pydantic_object(self)
+
+    @property
+    def list_entry(self) -> list:
+        return [getattr(self, obj_name) for obj_name, _ in self.FIELDS_TO_SHOW_IN_LIST]
+
+
     def pending(self):
         return ExecutionResult.objects.exclude(status__in=ExecutionStatus.SM_FINAL_STATES)
 
@@ -150,85 +230,3 @@ class Execution(models.Manager):
         return original_result
 
 
-class ExecutionResult(FunctionExecutionStateMachineMixin, models.Model):
-    FIELDS_TO_SHOW_IN_LIST = [
-        ("func_name", "Function"),
-        ("created", "Created"),
-        ("user", "User"),
-        ("status", "Status"),
-        ("modified", "Modified")
-    ]
-    uuid = models.UUIDField(primary_key=True, unique=True, editable=False, default=uuid.uuid4)
-    func_name = models.CharField(max_length=512, editable=False)
-    input_json = models.JSONField(encoder=utils.EnumAwareEncoder, decoder=utils.EnumAwareDecoder)
-    output_json = models.JSONField(
-        default=dict, null=True, encoder=utils.EnumAwareEncoder, decoder=utils.EnumAwareDecoder
-    )
-    error_json = models.JSONField(
-        default=dict, null=True, encoder=utils.EnumAwareEncoder, decoder=utils.EnumAwareDecoder
-    )
-    traceback = models.TextField(default="")
-    created = models.DateTimeField(auto_now_add=True)
-    modified = models.DateTimeField(auto_now=True)
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True)
-
-    status = models.CharField(
-        max_length=50,
-        choices=ExecutionStatus.STATE_CHOICES,
-        default=ExecutionStatus.SM_INITIAL_STATE,
-    )
-    status_modified_at = models.DateTimeField(auto_now_add=True)
-    status_history = models.JSONField(default=list)
-    # state machine setup
-    status_class = ExecutionStatus
-    machine = Machine(
-        model=None,
-        auto_transitions=False,
-        queued=True,
-        after_state_change="track_state_changes",
-        **status_class.get_kwargs(),  # noqa: C815
-    )
-
-    # use custom manager
-    objects = Execution()
-
-    def get_function(self):
-        # TODO: figure this out
-        from . import get_registry
-
-        func_obj = get_registry().get(self.func_name)
-        if not func_obj:
-            raise ValueError(f"No registered function defined for {self.func_name}")
-        return func_obj.func
-
-    @property
-    def is_complete(self):
-        # The execution result is saved to output_json only upon execution completion
-        if self.output_json:
-            return True
-        return False
-
-    @property
-    def has_errored(self):
-        if self.error_json:
-            return True
-        return False
-
-    #TO-DO: Define is_cancelled and logic for tracking cancellations
-
-    def get_absolute_url(self):
-        # TODO: prob better way to do this so that it all redirects right :(
-        return reverse(f"turtle_shell:detail-{self.func_name}", kwargs={"pk": self.pk})
-
-    def __repr__(self):
-        return f"<{type(self).__name__}({self})"
-
-    @property
-    def pydantic_object(self):
-        from turtle_shell import pydantic_adapter
-
-        return pydantic_adapter.get_pydantic_object(self)
-
-    @property
-    def list_entry(self) -> list:
-        return [getattr(self, obj_name) for obj_name, _ in self.FIELDS_TO_SHOW_IN_LIST]
