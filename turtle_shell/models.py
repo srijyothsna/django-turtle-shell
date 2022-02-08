@@ -150,7 +150,7 @@ class Execution(models.Manager):
         return original_result
 
 
-class ExecutionResult(FunctionExecutionStateMachineMixin, models.Model, Execution):
+class ExecutionResult(FunctionExecutionStateMachineMixin, models.Model):
     FIELDS_TO_SHOW_IN_LIST = [
         ("func_name", "Function"),
         ("created", "Created"),
@@ -188,6 +188,9 @@ class ExecutionResult(FunctionExecutionStateMachineMixin, models.Model, Executio
         after_state_change="track_state_changes",
         **status_class.get_kwargs(),  # noqa: C815
     )
+
+    # use custom manager
+    objects = Execution()
 
     def get_function(self):
         # TODO: figure this out
