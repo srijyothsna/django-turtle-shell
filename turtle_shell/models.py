@@ -40,6 +40,101 @@ class ExecutionException(CaughtException):
     """Exception for when execution fails"""
 
 
+class Execution(models.Manager):
+    def pending(self):
+        return ExecutionResult.objects.exclude(status__in=ExecutionStatus.SM_FINAL_STATES)
+
+    def handle_error_response(self, error_details):
+        error_response = {}
+        error_response['uuid'] = self.model.uuid
+        error_response['error_details'] = error_details
+        self.model.traceback = error_details['traceback']
+        self.model.error_json = {"type": error_details['type'], "message": error_details['message']}
+        with transaction.atomic():
+            self.model.save()
+        return error_response
+
+    def validate_execution_input(self, uuid, func, input_json):
+        # Override to define app-specific input validation for function
+        # Raise ValidationException
+        pass
+
+    def _validate_inputs(self, input, func_name):
+        try:
+            self.validate_execution_input(input['uuid'], func_name, input['input_json'])
+            # Can be overridden to define app-specific input validation for function executions
+        except ValidationException as ve:
+            import traceback
+            logger.error(
+                f"Failed to validate inputs for {func_name} :(: {type(ve).__name__}:{ve}",
+                exc_info=True
+            )
+            # TODO: catch integrity error separately
+            error_details = {'error_type': type(ve).__name__,
+                             'message': str(ve),
+                             'error_traceback': "".join(traceback.format_exc())}
+            error_response = self.handle_error_response(error_details)
+            raise CaughtException(f"Failed on {func_name}\n Error Response:: {error_response}", ve) from ve
+        return self.model.get_current_state()
+
+    def create(self, **kwargs):
+        try:
+            func = self.model.get_function()
+            # Here the execution instance is created, so the
+            cur_inp = self.model.get_current_state()
+            val_inp = self._validate_inputs(self.model, cur_inp, self.model.func_name)
+            with transaction.atomic():
+                self.model.save()
+        except CreationException as ce:
+            import traceback
+            logger.error(
+                f"Failed to create {self.model.func_name} :(: {type(ce).__name__}:{ce}", exc_info=True
+            )
+            error_details = {'type': type(ce).__name__,
+                             'message': str(ce),
+                             'traceback': "".join(traceback.format_exc()),}
+            return self.handle_error_response(error_details)
+        return val_inp
+
+    def execute(self, **kwargs):
+        original_result = None
+        try:
+            func = self.model.get_function()
+            result = original_result = func(**self.model.input_json)
+        except ExecutionException as ee:
+            import traceback
+            logger.error(
+                f"Failed to execute {self.model.func_name} :(: {type(ee).__name__}:{ee}", exc_info=True
+            )
+            # TODO: catch integrity error separately
+            error_details = {'error_type': type(ee).__name__,
+                             'message': str(ee),
+                             'error_traceback': "".join(traceback.format_exc())}
+            error_response = self.handle_error_response(error_details)
+            raise CaughtException(f"Failed on {self.model.func_name}\n Error Response:: {error_response}", ee) from ee
+        try:
+            if hasattr(result, "json"):
+                result = json.loads(result.json())
+                self.model.output_json = result
+                # allow ourselves to save again externally
+                with transaction.atomic():
+                    self.model.save()
+        except TypeError as e:
+            import traceback
+            self.model.error_json = {"type": type(e).__name__, "message": str(e)}
+            self.model.traceback = "".join(traceback.format_exc())
+            msg = f"Failed on {self.model.func_name} ({type(e).__name__})"
+
+            if "JSON serializable" in str(e):
+                # save it as a str so we can at least have something to show
+                self.model.output_json = str(result)
+                self.model.save()
+                raise ResultJSONEncodeException(msg, e) from e
+            else:
+                raise e
+        return original_result
+
+
 class ExecutionResult(FunctionExecutionStateMachineMixin, models.Model):
     FIELDS_TO_SHOW_IN_LIST = [
         ("func_name", "Function"),
@@ -78,6 +173,9 @@ class ExecutionResult(FunctionExecutionStateMachineMixin, models.Model):
         after_state_change="track_state_changes",
         **status_class.get_kwargs(),  # noqa: C815
     )
+
+    # Manager for the model object
+    objects = Execution()
 
     def get_function(self):
         # TODO: figure this out
@@ -120,10 +218,6 @@ class ExecutionResult(FunctionExecutionStateMachineMixin, models.Model):
     def list_entry(self) -> list:
         return [getattr(self, obj_name) for obj_name, _ in self.FIELDS_TO_SHOW_IN_LIST]
 
-
-    def pending(self):
-        return ExecutionResult.objects.exclude(status__in=ExecutionStatus.SM_FINAL_STATES)
-
     def get_current_state(self):
         # Override this to define app-specific behavior
         # to calculate internal state of inputs (based on output from previous task),
@@ -139,94 +233,8 @@ class ExecutionResult(FunctionExecutionStateMachineMixin, models.Model):
             'output_json': self.output_json  # None until output is ready
         }
 
-    def handle_error_response(self, error_details):
-        error_response = {}
-        error_response['uuid'] = self.uuid
-        error_response['error_details'] = error_details
-        self.traceback = error_details['traceback']
-        self.error_json = {"type": error_details['type'], "message": error_details['message']}
-        with transaction.atomic():
-            self.save()
-        return error_response
 
-    def validate_execution_input(self, uuid, func, input_json):
-        # Override to define app-specific input validation for function
-        # Raise ValidationException
-        pass
 
-    def _validate_inputs(self, input, func_name):
-        try:
-            self.validate_execution_input(input['uuid'], func_name, input['input_json'])
-            # Can be overridden to define app-specific input validation for function executions
-        except ValidationException as ve:
-            import traceback
-            logger.error(
-                f"Failed to validate inputs for {self.func_name} :(: {type(ve).__name__}:{ve}",
-                exc_info=True
-            )
-            # TODO: catch integrity error separately
-            error_details = {'error_type': type(ve).__name__,
-                             'message': str(ve),
-                             'error_traceback': "".join(traceback.format_exc())}
-            error_response = self.handle_error_response(error_details)
-            raise CaughtException(f"Failed on {self.func_name}\n Error Response:: {error_response}", ve) from ve
-        return self.get_current_state()
 
-    def create(self, **kwargs):
-        try:
-            func = self.get_function()
-            # Here the execution instance is created, so the
-            cur_inp = self.get_current_state()
-            val_inp = self._validate_inputs(cur_inp, self.func_name)
-            with transaction.atomic():
-                self.save()
-        except CreationException as ce:
-            import traceback
-            logger.error(
-                f"Failed to create {self.func_name} :(: {type(ce).__name__}:{ce}", exc_info=True
-            )
-            error_details = {'type': type(ce).__name__,
-                             'message': str(ce),
-                             'traceback': "".join(traceback.format_exc()),}
-            return self.handle_error_response(error_details)
-        return val_inp
-
-    def execute(self, **kwargs):
-        original_result = None
-        try:
-            func = self.get_function()
-            result = original_result = func(**self.input_json)
-        except ExecutionException as ee:
-            import traceback
-            logger.error(
-                f"Failed to execute {self.func_name} :(: {type(ee).__name__}:{ee}", exc_info=True
-            )
-            # TODO: catch integrity error separately
-            error_details = {'error_type': type(ee).__name__,
-                             'message': str(ee),
-                             'error_traceback': "".join(traceback.format_exc())}
-            error_response = self.handle_error_response(error_details)
-            raise CaughtException(f"Failed on {self.func_name}\n Error Response:: {error_response}", ee) from ee
-        try:
-            if hasattr(result, "json"):
-                result = json.loads(result.json())
-                self.output_json = result
-                # allow ourselves to save again externally
-                with transaction.atomic():
-                        self.save()
-        except TypeError as e:
-            import traceback
-            self.error_json = {"type": type(e).__name__, "message": str(e)}
-            self.traceback = "".join(traceback.format_exc())
-            msg = f"Failed on {self.func_name} ({type(e).__name__})"
-
-            if "JSON serializable" in str(e):
-                # save it as a str so we can at least have something to show
-                self.output_json = str(result)
-                self.save()
-                raise ResultJSONEncodeException(msg, e) from e
-            else:
-                raise e
-        return original_result
 
 
