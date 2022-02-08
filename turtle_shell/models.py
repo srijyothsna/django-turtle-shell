@@ -44,21 +44,6 @@ class Execution(models.Manager):
     def pending(self):
         return ExecutionResult.objects.exclude(status__in=ExecutionStatus.SM_FINAL_STATES)
 
-    def advance(self) -> bool:
-        try:
-            if not self.object.status == (ExecutionStatus.RUNNING or ExecutionStatus.SM_FINAL_STATES):
-                result = self.object.execute()
-        except Exception as exp:
-            import traceback
-            logger.error(
-                f"Failed to execute {self.object.func_name} :(: {type(exp).__name__}:{exp}", exc_info=True
-            )
-            error_details = {'type': type(exp).__name__,
-                             'message': str(exp),
-                             'traceback': traceback.format_exc(), }
-            return self.handle_error_response(error_details)
-        return result
-
     def get_current_state(self):
         # Override this to define app-specific behavior
         # to calculate internal state of inputs (based on output from previous task),

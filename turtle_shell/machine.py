@@ -4,6 +4,8 @@ from datetime import datetime
 from django_transitions.workflow import StateMachineMixinBase
 from django_transitions.workflow import StatusBase
 
+from turtle_shell.models import
+
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +42,21 @@ class FunctionExecutionStateMachineMixin(StateMachineMixinBase):
             (self.status, self.status_modified_at.strftime("%Y-%m-%d %H:%M:%S (%Z)"))
         )
         self.save()
+
+    def advance(self):
+        try:
+            if not self.status == ExecutionStatus.SM_FINAL_STATES:
+                result = self.object.execute()
+        except Exception as exp:
+            import traceback
+            logger.error(
+                f"Failed to execute {self.func_name} :(: {type(exp).__name__}:{exp}", exc_info=True
+            )
+            error_details = {'type': type(exp).__name__,
+                             'message': str(exp),
+                             'traceback': traceback.format_exc(), }
+            return self.handle_error_response(error_details)
+        return result
 
 
 class ExecutionStatus(StatusBase):
