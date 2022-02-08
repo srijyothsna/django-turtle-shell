@@ -33,7 +33,7 @@ class FunctionExecutionStateMachineMixin(StateMachineMixinBase):
     def track_state_changes(self, *args, **kwargs):
         """Run this on all transitions."""
         logger.debug(
-            f"Tracking state changes: {self.id}, adding {self.status} to history, {self.status_history}"
+            f"Tracking state changes: {self.uuid}, adding {self.status} to history, {self.status_history}"
         )
         self.status_modified_at = datetime.now()
         self.status_history.append(
