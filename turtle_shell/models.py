@@ -50,23 +50,23 @@ class Execution(models.Manager):
         # the status and return the new internal state of inputs (or output at this stage) and new status.
         # This can be defined by apps extending this functionality.
         return {
-            'function_name': self.object.func_name,
-            'input_json': self.object.input_json,
-            'uuid': self.object.uuid,
-            'status': self.object.status,
-            'status_history': self.object.status_history,  # starting status could be None and could pass next possible state
-            'status_modified_at': self.object.status_modified_at,
-            'output_json': self.object.output_json  # None until output is ready
+            'function_name': self.func_name,
+            'input_json': self.input_json,
+            'uuid': self.uuid,
+            'status': self.status,
+            'status_history': self.status_history,  # starting status could be None and could pass next possible state
+            'status_modified_at': self.status_modified_at,
+            'output_json': self.output_json  # None until output is ready
         }
 
     def handle_error_response(self, error_details):
         error_response = {}
-        error_response['uuid'] = self.object.uuid
+        error_response['uuid'] = self.uuid
         error_response['error_details'] = error_details
-        self.object.traceback = error_details['traceback']
-        self.object.error_json = {"type": error_details['type'], "message": error_details['message']}
+        self.traceback = error_details['traceback']
+        self.error_json = {"type": error_details['type'], "message": error_details['message']}
         with transaction.atomic():
-            self.object.save()
+            self.save()
         return error_response
 
     def validate_execution_input(self, uuid, func, input_json):
@@ -81,7 +81,7 @@ class Execution(models.Manager):
         except ValidationException as ve:
             import traceback
             logger.error(
-                f"Failed to validate inputs for {self.object.func_name} :(: {type(ve).__name__}:{ve}",
+                f"Failed to validate inputs for {self.func_name} :(: {type(ve).__name__}:{ve}",
                 exc_info=True
             )
             # TODO: catch integrity error separately
@@ -89,21 +89,21 @@ class Execution(models.Manager):
                              'message': str(ve),
                              'error_traceback': "".join(traceback.format_exc())}
             error_response = self.handle_error_response(error_details)
-            raise CaughtException(f"Failed on {self.object.func_name}\n Error Response:: {error_response}", ve) from ve
+            raise CaughtException(f"Failed on {self.func_name}\n Error Response:: {error_response}", ve) from ve
         return self.get_current_state()
 
     def create(self, **kwargs):
         try:
-            func = self.object.get_function()
+            func = self.get_function()
             # Here the execution instance is created, so the
             cur_inp = self.get_current_state()
-            val_inp = self._validate_inputs(cur_inp, self.object.func_name)
+            val_inp = self._validate_inputs(cur_inp, self.func_name)
             with transaction.atomic():
-                self.object.save()
+                self.save()
         except CreationException as ce:
             import traceback
             logger.error(
-                f"Failed to create {self.object.func_name} :(: {type(ce).__name__}:{ce}", exc_info=True
+                f"Failed to create {self.func_name} :(: {type(ce).__name__}:{ce}", exc_info=True
             )
             error_details = {'type': type(ce).__name__,
                              'message': str(ce),
@@ -114,12 +114,12 @@ class Execution(models.Manager):
     def execute(self, **kwargs):
         original_result = None
         try:
-            func = self.object.get_function()
-            result = original_result = func(**self.object.input_json)
+            func = self.get_function()
+            result = original_result = func(**self.input_json)
         except ExecutionException as ee:
             import traceback
             logger.error(
-                f"Failed to execute {self.object.func_name} :(: {type(ee).__name__}:{ee}", exc_info=True
+                f"Failed to execute {self.func_name} :(: {type(ee).__name__}:{ee}", exc_info=True
             )
             # TODO: catch integrity error separately
             error_details = {'error_type': type(ee).__name__,
@@ -130,27 +130,27 @@ class Execution(models.Manager):
         try:
             if hasattr(result, "json"):
                 result = json.loads(result.json())
-                self.object.output_json = result
+                self.output_json = result
                 # allow ourselves to save again externally
                 with transaction.atomic():
-                        self.object.save()
+                        self.save()
         except TypeError as e:
             import traceback
-            self.object.error_json = {"type": type(e).__name__, "message": str(e)}
-            self.object.traceback = "".join(traceback.format_exc())
+            self.error_json = {"type": type(e).__name__, "message": str(e)}
+            self.traceback = "".join(traceback.format_exc())
             msg = f"Failed on {self.func_name} ({type(e).__name__})"
 
             if "JSON serializable" in str(e):
                 # save it as a str so we can at least have something to show
-                self.object.output_json = str(result)
-                self.object.save()
+                self.output_json = str(result)
+                self.save()
                 raise ResultJSONEncodeException(msg, e) from e
             else:
                 raise e
         return original_result
 
 
-class ExecutionResult(FunctionExecutionStateMachineMixin, models.Model):
+class ExecutionResult(FunctionExecutionStateMachineMixin, models.Model, Execution):
     FIELDS_TO_SHOW_IN_LIST = [
         ("func_name", "Function"),
         ("created", "Created"),
@@ -188,9 +188,6 @@ class ExecutionResult(FunctionExecutionStateMachineMixin, models.Model):
         after_state_change="track_state_changes",
         **status_class.get_kwargs(),  # noqa: C815
     )
-
-    # use custom manager
-    objects = Execution()
 
     def get_function(self):
         # TODO: figure this out

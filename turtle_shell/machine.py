@@ -114,7 +114,7 @@ class FunctionExecutionStateMachineMixin(StateMachineMixinBase):
     def advance(self):
         try:
             if not self.status == ExecutionStatus.SM_FINAL_STATES:
-                result = self.object.execute()
+                result = self.execute()
         except Exception as exp:
             import traceback
             logger.error(
