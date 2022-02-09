@@ -119,7 +119,7 @@ class FunctionExecutionStateMachineMixin(StateMachineMixinBase):
         except Exception as ex:
             import traceback
             logger.error(
-                f"Failed to advance {self.uuid} from {}:(: {type(ex).__name__}:{ex}", exc_info=True
+                f"Failed to advance {self.uuid} from {self.status} status :(: {type(ex).__name__}:{ex}", exc_info=True
             )
             error_details = {'type': type(ex).__name__,
                              'message': str(ex),
