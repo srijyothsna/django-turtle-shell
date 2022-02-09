@@ -4,9 +4,6 @@ import logging
 from django_transitions.workflow import StatusBase
 from django_transitions.workflow import StateMachineMixinBase
 
-from turtle_shell.models import Execution
-from turtle_shell.models import ExecutionResult
-
 logger = logging.getLogger(__name__)
 
 
@@ -126,5 +123,5 @@ class FunctionExecutionStateMachineMixin(StateMachineMixinBase):
             error_details = {'type': type(exp).__name__,
                              'message': str(exp),
                              'traceback': traceback.format_exc(), }
-            return Execution.handle_error_response(error_details)
+            return self.handle_error_response(error_details)
         return result
