@@ -90,15 +90,16 @@ class Execution():
             val_inp = self._validate_inputs(cur_inp, self.func_name)
             with transaction.atomic():
                 self.save()
-        except CreationException as ce:
+        except CreationException as ex:
             import traceback
             logger.error(
-                f"Failed to create {self.func_name} :(: {type(ce).__name__}:{ce}", exc_info=True
+                f"Failed to create {self.func_name} :(: {type(ex).__name__}:{ex}", exc_info=True
             )
-            error_details = {'type': type(ce).__name__,
-                             'message': str(ce),
+            error_details = {'type': type(ex).__name__,
+                             'message': str(ex),
                              'traceback': "".join(traceback.format_exc()),}
-            return self.handle_error_response(error_details)
+            error_response = self.handle_error_response(error_details)
+            raise CaughtException(f"Failed on {self.func_name}\n Error Response:: {error_response}", ex) from ex
         return val_inp
 
     def execute(self, **kwargs):
@@ -106,17 +107,17 @@ class Execution():
         try:
             func = self.get_function()
             result = original_result = func(**self.input_json)
-        except ExecutionException as ee:
+        except ExecutionException as ex:
             import traceback
             logger.error(
-                f"Failed to execute {self.func_name} :(: {type(ee).__name__}:{ee}", exc_info=True
+                f"Failed to execute {self.func_name} :(: {type(ex).__name__}:{ex}", exc_info=True
             )
             # TODO: catch integrity error separately
-            error_details = {'error_type': type(ee).__name__,
-                             'message': str(ee),
+            error_details = {'error_type': type(ex).__name__,
+                             'message': str(ex),
                              'error_traceback': "".join(traceback.format_exc())}
             error_response = self.handle_error_response(error_details)
-            raise CaughtException(f"Failed on {self.func_name}\n Error Response:: {error_response}", ee) from ee
+            raise CaughtException(f"Failed on {self.func_name}\n Error Response:: {error_response}", ex) from ex
         try:
             if hasattr(result, "json"):
                 result = json.loads(result.json())

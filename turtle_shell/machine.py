@@ -4,7 +4,6 @@ import logging
 from django_transitions.workflow import StatusBase
 from django_transitions.workflow import StateMachineMixinBase
 
-from turtle_shell.models import CaughtException
 
 logger = logging.getLogger(__name__)
 
@@ -120,11 +119,11 @@ class FunctionExecutionStateMachineMixin(StateMachineMixinBase):
         except Exception as ex:
             import traceback
             logger.error(
-                f"Failed to execute {self.func_name} :(: {type(ex).__name__}:{ex}", exc_info=True
+                f"Failed to advance {self.uuid} from {}:(: {type(ex).__name__}:{ex}", exc_info=True
             )
             error_details = {'type': type(ex).__name__,
                              'message': str(ex),
                              'traceback': traceback.format_exc(), }
             error_response = self.handle_error_response(error_details)
-            raise CaughtException(f"Failed on {self.func_name}\n Error Response:: {error_response}", ex) from ex
+            raise Exception(f"Failed on {self.func_name}\n Error Response:: {error_response}", ex) from ex
         return result
