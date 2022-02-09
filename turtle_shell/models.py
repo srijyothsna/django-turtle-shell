@@ -139,6 +139,25 @@ class Execution():
                 raise e
         return original_result
 
+    def mark_complete(self, **kwargs):
+        result = None
+        try:
+            if self.is_complete():
+                result = self.get_current_state()
+                self.save()
+        except ExecutionException as ee:
+            import traceback
+            logger.error(
+                f"Failed to mark {self.func_name} as completed:(: {type(ee).__name__}:{ee}", exc_info=True
+            )
+            # TODO: catch integrity error separately
+            error_details = {'error_type': type(ee).__name__,
+                             'message': str(ee),
+                             'error_traceback': "".join(traceback.format_exc())}
+            error_response = self.handle_error_response(error_details)
+            raise CaughtException(f"Failed on {self.func_name}\n Error Response:: {error_response}", ee) from ee
+        return result
+
 
 class ExecutionResult(FunctionExecutionStateMachineMixin, Execution, models.Model):
     FIELDS_TO_SHOW_IN_LIST = [

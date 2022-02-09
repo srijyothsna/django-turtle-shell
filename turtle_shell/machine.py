@@ -52,7 +52,7 @@ class ExecutionStatus(StatusBase):
             dict(trigger=CREATE, source=CREATED, dest=SOURCE),
             # define how to advance from created to next states
             dict(trigger=ADVANCE, source=CREATED, dest=RUNNING),
-            dict(trigger=ADVANCE, source=RUNNING, dest=DONE, conditions=[IS_COMPLETE]),
+            dict(trigger=MARK_COMPLETE, source=RUNNING, dest=DONE, conditions=[IS_COMPLETE]),
             # define how to move to errored state
             dict(trigger=ERROR, source=CREATED, dest=ERRORED, conditions=[HAS_ERRORED]),
             dict(trigger=ERROR, source=RUNNING, dest=ERRORED, conditions=[HAS_ERRORED]),
@@ -113,8 +113,10 @@ class FunctionExecutionStateMachineMixin(StateMachineMixinBase):
     def advance(self):
         result = None
         try:
-            if self.status not in ExecutionStatus.SM_FINAL_STATES:
+            if self.status != ExecutionStatus.RUNNING and self.status not in ExecutionStatus.SM_FINAL_STATES:
                 result = self.execute()
+            if self.status == ExecutionStatus.RUNNING:
+                result = self.mark_complete()
         except Exception as exp:
             import traceback
             logger.error(

@@ -14,4 +14,4 @@ def advance_executions():
     for pending_execution in pending_executions:
         logger.info(f"Advancing {pending_execution.id}")
         # while it is not completed, continue, keep checking if done
-        pending_execution.advance()
+        result = pending_execution.advance()
