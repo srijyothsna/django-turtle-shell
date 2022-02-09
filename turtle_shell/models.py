@@ -40,18 +40,23 @@ class ExecutionException(CaughtException):
     """Exception for when execution fails"""
 
 
-class Execution(models.Manager):
+class ExecutionManager(models.Manager):
+    def get_execution_by_uuid(self, uuid):
+        return ExecutionResult.objects.filter(uuid=uuid)
+
     def pending(self):
         return ExecutionResult.objects.exclude(status__in=ExecutionStatus.SM_FINAL_STATES)
 
+
+class Execution():
     def handle_error_response(self, error_details):
         error_response = {}
-        error_response['uuid'] = self.model.uuid
+        error_response['uuid'] = self.uuid
         error_response['error_details'] = error_details
-        self.model.traceback = error_details['traceback']
-        self.model.error_json = {"type": error_details['type'], "message": error_details['message']}
+        self.traceback = error_details['traceback']
+        self.error_json = {"type": error_details['type'], "message": error_details['message']}
         with transaction.atomic():
-            self.model.save()
+            self.save()
         return error_response
 
     def validate_execution_input(self, uuid, func, input_json):
@@ -75,20 +80,20 @@ class Execution(models.Manager):
                              'error_traceback': "".join(traceback.format_exc())}
             error_response = self.handle_error_response(error_details)
             raise CaughtException(f"Failed on {func_name}\n Error Response:: {error_response}", ve) from ve
-        return self.model.get_current_state()
+        return self.get_current_state()
 
     def create(self, **kwargs):
         try:
-            func = self.model.get_function()
+            func = self.get_function()
             # Here the execution instance is created, so the
-            cur_inp = self.model.get_current_state()
-            val_inp = self._validate_inputs(self.model, cur_inp, self.model.func_name)
+            cur_inp = self.get_current_state()
+            val_inp = self._validate_inputs(cur_inp, self.func_name)
             with transaction.atomic():
-                self.model.save()
+                self.save()
         except CreationException as ce:
             import traceback
             logger.error(
-                f"Failed to create {self.model.func_name} :(: {type(ce).__name__}:{ce}", exc_info=True
+                f"Failed to create {self.func_name} :(: {type(ce).__name__}:{ce}", exc_info=True
             )
             error_details = {'type': type(ce).__name__,
                              'message': str(ce),
@@ -99,43 +104,43 @@ class Execution(models.Manager):
     def execute(self, **kwargs):
         original_result = None
         try:
-            func = self.model.get_function()
-            result = original_result = func(**self.model.input_json)
+            func = self.get_function()
+            result = original_result = func(**self.input_json)
         except ExecutionException as ee:
             import traceback
             logger.error(
-                f"Failed to execute {self.model.func_name} :(: {type(ee).__name__}:{ee}", exc_info=True
+                f"Failed to execute {self.func_name} :(: {type(ee).__name__}:{ee}", exc_info=True
             )
             # TODO: catch integrity error separately
             error_details = {'error_type': type(ee).__name__,
                              'message': str(ee),
                              'error_traceback': "".join(traceback.format_exc())}
             error_response = self.handle_error_response(error_details)
-            raise CaughtException(f"Failed on {self.model.func_name}\n Error Response:: {error_response}", ee) from ee
+            raise CaughtException(f"Failed on {self.func_name}\n Error Response:: {error_response}", ee) from ee
         try:
             if hasattr(result, "json"):
                 result = json.loads(result.json())
-                self.model.output_json = result
+                self.output_json = result
                 # allow ourselves to save again externally
                 with transaction.atomic():
-                    self.model.save()
+                    self.save()
         except TypeError as e:
             import traceback
-            self.model.error_json = {"type": type(e).__name__, "message": str(e)}
-            self.model.traceback = "".join(traceback.format_exc())
-            msg = f"Failed on {self.model.func_name} ({type(e).__name__})"
+            self.error_json = {"type": type(e).__name__, "message": str(e)}
+            self.traceback = "".join(traceback.format_exc())
+            msg = f"Failed on {self.func_name} ({type(e).__name__})"
 
             if "JSON serializable" in str(e):
                 # save it as a str so we can at least have something to show
-                self.model.output_json = str(result)
-                self.model.save()
+                self.output_json = str(result)
+                self.save()
                 raise ResultJSONEncodeException(msg, e) from e
             else:
                 raise e
         return original_result
 
 
-class ExecutionResult(FunctionExecutionStateMachineMixin, models.Model):
+class ExecutionResult(FunctionExecutionStateMachineMixin, Execution, models.Model):
     FIELDS_TO_SHOW_IN_LIST = [
         ("func_name", "Function"),
         ("created", "Created"),
@@ -175,7 +180,7 @@ class ExecutionResult(FunctionExecutionStateMachineMixin, models.Model):
     )
 
     # Manager for the model object
-    objects = Execution()
+    objects = ExecutionManager()
 
     def get_function(self):
         # TODO: figure this out
@@ -232,9 +237,3 @@ class ExecutionResult(FunctionExecutionStateMachineMixin, models.Model):
             'status_modified_at': self.status_modified_at,
             'output_json': self.output_json  # None until output is ready
         }
-
-
-
-
-
-
