@@ -4,16 +4,18 @@ import logging
 from django_transitions.workflow import StatusBase
 from django_transitions.workflow import StateMachineMixinBase
 
+from turtle_shell.models import CaughtException
+
 logger = logging.getLogger(__name__)
 
 
 class ExecutionStatus(StatusBase):
         # Define the statuses as constants
         SOURCE = "="
-        CREATED = "created"
-        RUNNING = "running"
-        DONE = "done"
-        ERRORED = "errored"
+        CREATED = "CREATED"
+        RUNNING = "RUNNING"
+        DONE = "DONE"
+        ERRORED = "ERRORED"
 
         STATUS_CHOICES = ((CREATED, "Created execution"),
                           (RUNNING, "Running"),
@@ -23,7 +25,6 @@ class ExecutionStatus(StatusBase):
         # Define the transitions as constants
         CREATE = "create"
         ADVANCE = "advance"
-        MARK_COMPLETE = "mark_complete"
         ERROR = "error"
 
         # The states of the machine
@@ -31,7 +32,7 @@ class ExecutionStatus(StatusBase):
             dict(name=CREATED, on_enter=[ADVANCE]),
             # Can define more states for the machine like update
             # by overloading ADVANCE to move to next state each time
-            dict(name=RUNNING, on_exit=[MARK_COMPLETE]),
+            dict(name=RUNNING, on_exit=[ADVANCE]),
             dict(name=ERRORED, on_enter=[ERRORED]),
         ]
 
@@ -49,10 +50,11 @@ class ExecutionStatus(StatusBase):
         # This could be defined by classes that extend this functionality based on app-specific functionality
         SM_TRANSITIONS = [
             # reflexive transition to start state machine
-            dict(trigger=CREATE, source=CREATED, dest=SOURCE),
+            #dict(trigger=CREATE, source=CREATED, dest=SOURCE),
+            dict(trigger=CREATE, source=SOURCE, dest=CREATED),
             # define how to advance from created to next states
             dict(trigger=ADVANCE, source=CREATED, dest=RUNNING),
-            dict(trigger=MARK_COMPLETE, source=RUNNING, dest=DONE, conditions=[IS_COMPLETE]),
+            dict(trigger=ADVANCE, source=RUNNING, dest=DONE, conditions=[IS_COMPLETE]),
             # define how to move to errored state
             dict(trigger=ERROR, source=CREATED, dest=ERRORED, conditions=[HAS_ERRORED]),
             dict(trigger=ERROR, source=RUNNING, dest=ERRORED, conditions=[HAS_ERRORED]),
@@ -68,9 +70,6 @@ class ExecutionStatus(StatusBase):
             ADVANCE: {"label": "Advance to next state",
                       "cssclass": "default"
                       },
-            MARK_COMPLETE: {"label": "Mark an execution when done",
-                            "cssclass": "default"
-                            },
             ERROR: {"label": "Handle error",
                     "cssclass": "default"
                     },
@@ -113,17 +112,19 @@ class FunctionExecutionStateMachineMixin(StateMachineMixinBase):
     def advance(self):
         result = None
         try:
-            if self.status != ExecutionStatus.RUNNING and self.status not in ExecutionStatus.SM_FINAL_STATES:
-                result = self.execute()
-            if self.status == ExecutionStatus.RUNNING:
-                result = self.mark_complete()
-        except Exception as exp:
+            if self.objects.pending(self.uuid):
+                if self.status != ExecutionStatus.RUNNING:
+                    result = self.execute()
+                else:
+                    result = self.mark_complete()
+        except Exception as ex:
             import traceback
             logger.error(
-                f"Failed to execute {self.func_name} :(: {type(exp).__name__}:{exp}", exc_info=True
+                f"Failed to execute {self.func_name} :(: {type(ex).__name__}:{ex}", exc_info=True
             )
-            error_details = {'type': type(exp).__name__,
-                             'message': str(exp),
+            error_details = {'type': type(ex).__name__,
+                             'message': str(ex),
                              'traceback': traceback.format_exc(), }
-            return self.handle_error_response(error_details)
+            error_response = self.handle_error_response(error_details)
+            raise CaughtException(f"Failed on {self.func_name}\n Error Response:: {error_response}", ex) from ex
         return result

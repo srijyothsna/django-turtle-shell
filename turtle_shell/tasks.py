@@ -6,7 +6,7 @@ from turtle_shell.models import ExecutionResult
 
 logger = get_task_logger(__name__)
 
-
+"""
 @shared_task()
 def advance_executions():
     pending_executions = ExecutionResult.objects.pending()
@@ -15,3 +15,4 @@ def advance_executions():
         logger.info(f"Advancing {pending_execution.id}")
         # while it is not completed, continue, keep checking if done
         result = pending_execution.advance()
+"""
