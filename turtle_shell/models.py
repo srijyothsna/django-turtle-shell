@@ -44,8 +44,7 @@ class ExecutionManager(models.Manager):
     def get_execution_by_uuid(self, uuid):
         return ExecutionResult.objects.filter(uuid=uuid)
 
-    def pending(self, uuid):
-        return self.get_execution_by_uuid(uuid).exclude(status__in=ExecutionStatus.SM_FINAL_STATES)
+
 
 
 class Execution():
@@ -83,6 +82,7 @@ class Execution():
         return self.get_current_state()
 
     def create(self, **kwargs):
+        logger.debug("In create(): Creating an execution")
         try:
             func = self.get_function()
             # Here the execution instance is created, so the
@@ -100,9 +100,11 @@ class Execution():
                              'traceback': "".join(traceback.format_exc()),}
             error_response = self.handle_error_response(error_details)
             raise CaughtException(f"Failed on {self.func_name}\n Error Response:: {error_response}", ex) from ex
+        logger.debug(f"In create(): Created an execution {val_inp}")
         return val_inp
 
     def execute(self, **kwargs):
+        logger.debug("In execute(): Executing a function")
         original_result = None
         try:
             func = self.get_function()
@@ -138,9 +140,11 @@ class Execution():
                 raise ResultJSONEncodeException(msg, e) from e
             else:
                 raise e
+        logger.debug(f"In execute(): Executed a function:: {self.func_name} for {self.uuid}")
         return original_result
 
     def mark_complete(self):
+        logger.debug(f"In mark_complete(): Marking a function complete:: {self.func_name} for {self.uuid}")
         result = None
         try:
             if self.is_complete():
@@ -157,6 +161,7 @@ class Execution():
                              'error_traceback': "".join(traceback.format_exc())}
             error_response = self.handle_error_response(error_details)
             raise CaughtException(f"Failed on {self.func_name}\n Error Response:: {error_response}", ex) from ex
+        logger.debug(f"In mark_complete():Marked function complete:: {self.func_name} for {self.uuid}")
         return result
 
 
@@ -215,14 +220,24 @@ class ExecutionResult(FunctionExecutionStateMachineMixin, Execution, models.Mode
     def is_complete(self):
         # The execution result is saved to output_json only upon execution completion
         if self.output_json:
+            logger.debug(f"{self.func_name} for {self.uuid} is complete. Returning True for is_complete()")
             return True
         return False
 
     @property
     def has_errored(self):
         if self.error_json:
+            logger.debug(f"{self.func_name} for {self.uuid} is complete. Returning True for has_errored()")
             return True
         return False
+
+    @property
+    def is_pending(self):
+        if self.status in ExecutionStatus.SM_FINAL_STATES:
+            return False
+        logger.debug(f"{self.func_name} for {self.uuid} is pending. Returning True for is_pending()")
+        return True
+
 
     #TO-DO: Define is_cancelled and logic for tracking cancellations
 

@@ -109,13 +109,20 @@ class FunctionExecutionStateMachineMixin(StateMachineMixinBase):
         self.save()
 
     def advance(self):
+        logger.debug(f"In advance(): {self.func_name} for {self.uuid} has status {self.status}")
         result = None
         try:
-            if self.objects.pending(self.uuid):
+            if self.is_pending():
                 if self.status != ExecutionStatus.RUNNING:
+                    logger.debug(f"In advance(): Calling execute() for {self.func_name} on {self.uuid}")
                     result = self.execute()
+                    logger.debug(f"In advance(): execute() for {self.func_name} on {self.uuid} "
+                                f"has returned with {result}")
                 else:
+                    logger.debug(f"In advance(): Calling mark_complete() for {self.func_name} on {self.uuid}")
                     result = self.mark_complete()
+                    logger.debug(f"In advance(): mark_compelte() for {self.func_name} on {self.uuid} "
+                                f"has returned with {result}")
         except Exception as ex:
             import traceback
             logger.error(
@@ -126,4 +133,5 @@ class FunctionExecutionStateMachineMixin(StateMachineMixinBase):
                              'traceback': traceback.format_exc(), }
             error_response = self.handle_error_response(error_details)
             raise Exception(f"Failed on {self.func_name}\n Error Response:: {error_response}", ex) from ex
+        logger.debug(f"Returning from advance(): {self.func_name} for {self.uuid} with\n {result}")
         return result
