@@ -54,14 +54,14 @@ class ExecutionCreateView(ExecutionViewMixin, CreateView):
         from .models import CaughtException
         sup = super().form_valid(form)
         try:
-            self.object.create()
+            result = self.object.create()
         except CaughtException as e:
             messages.warning(
                 self.request, f"Error in Execution {self.object.pk} ({self.object.func_name}): {e}"
             )
         else:
             messages.info(
-                self.request, f"Completed execution for {self.object.pk} ({self.object.func_name})"
+                self.request, f"Created execution for {self.object.pk} ({self.object.func_name})"
             )
         return sup
 

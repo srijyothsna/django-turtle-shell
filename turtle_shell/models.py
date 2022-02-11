@@ -1,6 +1,7 @@
-import uuid
 import json
 import logging
+import sys
+import uuid
 
 from django.db import models, transaction
 from django.urls import reverse
@@ -13,7 +14,8 @@ from turtle_shell.machine import FunctionExecutionStateMachineMixin
 
 
 logger = logging.getLogger(__name__)
-
+logging.basicConfig(level=logging.INFO)
+logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
 class CaughtException(Exception):
     """An exception that was caught and saved. Generally don't need to rollback transaction with
@@ -82,7 +84,8 @@ class Execution():
         return self.get_current_state()
 
     def create(self, **kwargs):
-        logger.debug("In create(): Creating an execution")
+        logger.info("In create(): Creating an execution")
+        print("In create(): Creating an execution")
         try:
             func = self.get_function()
             # Here the execution instance is created, so the
@@ -100,7 +103,8 @@ class Execution():
                              'traceback': "".join(traceback.format_exc()),}
             error_response = self.handle_error_response(error_details)
             raise CaughtException(f"Failed on {self.func_name}\n Error Response:: {error_response}", ex) from ex
-        logger.debug(f"In create(): Created an execution {val_inp}")
+        logger.info(f"In create(): Created an execution {val_inp}")
+        print(f"In create(): Created an execution {val_inp}")
         return val_inp
 
     def execute(self, **kwargs):
