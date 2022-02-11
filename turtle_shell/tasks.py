@@ -13,6 +13,6 @@ def advance_executions():
     pending_executions = ExecutionResult.objects.exclude(status__in=ExecutionStatus.SM_FINAL_STATES)
     logger.info(f"{pending_executions.count()} pending function execution Submissions...")
     for pending_execution in pending_executions:
-        logger.info(f"Advancing {pending_execution.id}")
+        logger.info(f"Advancing {pending_execution.uuid}")
         # while it is not completed, continue, keep checking if done
         result = pending_execution.advance()
