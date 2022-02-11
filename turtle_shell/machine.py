@@ -4,6 +4,8 @@ import logging
 from django_transitions.workflow import StatusBase
 from django_transitions.workflow import StateMachineMixinBase
 
+from turtle_shell.tasks import move_to_execute
+
 
 logger = logging.getLogger(__name__)
 
@@ -113,16 +115,9 @@ class FunctionExecutionStateMachineMixin(StateMachineMixinBase):
         result = None
         try:
             if self.is_pending:
-                if self.status != ExecutionStatus.RUNNING:
-                    logger.debug(f"In advance(): Calling execute() for {self.func_name} on {self.uuid}")
-                    result = self.execute()
-                    logger.debug(f"In advance(): execute() for {self.func_name} on {self.uuid} "
-                                f"has returned with {result}")
-                else:
-                    logger.debug(f"In advance(): Calling mark_complete() for {self.func_name} on {self.uuid}")
-                    result = self.mark_complete()
-                    logger.debug(f"In advance(): mark_compelte() for {self.func_name} on {self.uuid} "
-                                f"has returned with {result}")
+                execute_task = move_to_execute.delay(self.uuid)
+                print(f"execute_task:: {execute_task}")
+                logger.info(f"******** execute_task:: {execute_task} ************")
         except Exception as ex:
             import traceback
             logger.error(

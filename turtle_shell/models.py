@@ -48,8 +48,6 @@ class ExecutionManager(models.Manager):
         return ExecutionResult.objects.filter(uuid=uuid)
 
 
-
-
 class Execution():
     def handle_error_response(self, error_details):
         error_response = {}

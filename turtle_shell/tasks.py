@@ -16,3 +16,11 @@ def advance_executions():
         logger.info(f"Advancing {pending_execution.uuid}")
         # while it is not completed, continue, keep checking if done
         result = pending_execution.advance()
+
+
+@shared_task()
+def move_to_execute(uuid):
+    execution = ExecutionResult.objects.filter(uuid=uuid)
+    logger.info(f"Moving execution {execution.uuid} for {execution.func_name} to execute")
+    result = execution.execute()
+    execution.save()
