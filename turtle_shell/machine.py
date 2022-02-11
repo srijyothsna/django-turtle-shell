@@ -35,7 +35,7 @@ class ExecutionStatus(StatusBase):
             dict(name=ERRORED, on_enter=[ERRORED]),
         ]
 
-        # Define callbacks as constants
+        # Define conditions as constants
         IS_COMPLETE = "is_complete"
         HAS_ERRORED = "has_errored"
 
@@ -112,7 +112,7 @@ class FunctionExecutionStateMachineMixin(StateMachineMixinBase):
         logger.debug(f"In advance(): {self.func_name} for {self.uuid} has status {self.status}")
         result = None
         try:
-            if self.is_pending():
+            if self.is_pending:
                 if self.status != ExecutionStatus.RUNNING:
                     logger.debug(f"In advance(): Calling execute() for {self.func_name} on {self.uuid}")
                     result = self.execute()

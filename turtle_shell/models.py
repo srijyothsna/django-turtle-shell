@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 logging.getLogger().addHandler(logging.StreamHandler(sys.stdout))
 
+
 class CaughtException(Exception):
     """An exception that was caught and saved. Generally don't need to rollback transaction with
     this one :)"""
@@ -151,7 +152,7 @@ class Execution():
         logger.debug(f"In mark_complete(): Marking a function complete:: {self.func_name} for {self.uuid}")
         result = None
         try:
-            if self.is_complete():
+            if self.is_complete:
                 result = self.get_current_state()
                 self.save()
         except ExecutionException as ex:
